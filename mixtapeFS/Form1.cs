@@ -18,17 +18,19 @@ namespace mixtapeFS
         }
 
         TheFS cmfs;
+        Logger logger;
         List<string> msgs;
 
         private void Form1_Load(object sender, EventArgs e)
         {
+            logger = new Logger();
             msgs = new List<string>();
-            cmfs = new TheFS();
+            cmfs = new TheFS(logger);
             cmfs.AddMount(@"C:\Users\ed\Music", "music");
 
             var thr = new System.Threading.Thread(new System.Threading.ThreadStart(() =>
             {
-                cmfs.Mount(@"m:\", 0); // DokanNet.DokanOptions.DebugMode);
+                cmfs.Mount(@"m:\", 0); // DokanNet.DokanOptions.DebugMode); // HARDCODE
             }));
             thr.IsBackground = true;
             thr.Start();
@@ -44,21 +46,14 @@ namespace mixtapeFS
 
         void t_Tick(object sender, EventArgs e)
         {
-            string[] new_msgs;
-            lock (cmfs.msgs)
-            {
-                new_msgs = cmfs.msgs.ToArray();
-                cmfs.msgs.Clear();
-            }
+            string[] new_msgs = logger.pop();
             
             if (new_msgs.Length == 0)
                 return;
 
             msgs.AddRange(new_msgs);
             if (msgs.Count > 200)
-            {
                 msgs.RemoveRange(0, msgs.Count - 200);
-            }
 
             string txt = "";
             for (int a = msgs.Count - 1; a >= 0; a--)

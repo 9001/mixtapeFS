@@ -6,41 +6,9 @@ using DokanNet;
 using FileAccess = DokanNet.FileAccess;
 using System.IO;
 using System.Security.AccessControl;
-using System.Text.RegularExpressions;
 
 namespace mixtapeFS
 {
-    class Z
-    {
-        // http://csharptest.net/529/how-to-correctly-escape-command-line-arguments-in-c/index.html
-        public static string EscapeArguments(params string[] args)
-        {
-            StringBuilder arguments = new StringBuilder();
-            Regex invalidChar = new Regex("[\x00\x0a\x0d]");//  these can not be escaped
-            Regex needsQuotes = new Regex(@"\s|""");//          contains whitespace or two quote characters
-            Regex escapeQuote = new Regex(@"(\\*)(""|$)");//    one or more '\' followed with a quote or end of string
-            for (int carg = 0; args != null && carg < args.Length; carg++)
-            {
-                if (args[carg] == null) { throw new ArgumentNullException("args[" + carg + "]"); }
-                if (invalidChar.IsMatch(args[carg])) { throw new ArgumentOutOfRangeException("args[" + carg + "]"); }
-                if (args[carg] == String.Empty) { arguments.Append("\"\""); }
-                else if (!needsQuotes.IsMatch(args[carg])) { arguments.Append(args[carg]); }
-                else
-                {
-                    arguments.Append('"');
-                    arguments.Append(escapeQuote.Replace(args[carg], m =>
-                    m.Groups[1].Value + m.Groups[1].Value +
-                    (m.Groups[2].Value == "\"" ? "\\\"" : "")
-                    ));
-                    arguments.Append('"');
-                }
-                if (carg + 1 < args.Length)
-                    arguments.Append(' ');
-            }
-            return arguments.ToString();
-        }
-    }
-
     class TheFS : IDokanOperations
     {
         private const FileAccess DataAccess = FileAccess.ReadData | FileAccess.WriteData | FileAccess.AppendData |
@@ -52,24 +20,20 @@ namespace mixtapeFS
                                                    FileAccess.Delete |
                                                    FileAccess.GenericWrite;
 
-        public List<String> msgs;
+        Logger logger;
+        Cache cache;
         Dictionary<string, string> mounts;
-        HashSet<string> busyFiles;
 
-        public TheFS()
+        public TheFS(Logger logger)
         {
+            this.logger = logger;
+            cache = new Cache(logger, @"c:\cmfsc\" + DateTime.UtcNow.Ticks);
             mounts = new Dictionary<string, string>();
-            busyFiles = new HashSet<string>();
-            msgs = new List<string>();
         }
 
         void log(params string[] words)
         {
-            //return;
-            lock (msgs)
-            {
-                msgs.Add(System.DateTime.UtcNow.ToString("HH:mm:ss.ffff [") + string.Join("] [", words) + "]");
-            }
+            logger.log(words);
         }
 
         public void AddMount(string src, string name)
@@ -112,13 +76,24 @@ namespace mixtapeFS
             var top_path = virt.Substring(ofs);
             var mp_name = virt.Substring(1, ofs - 1).Trim('\\');
 
-            try
-            {
-                if (mounts.ContainsKey(mp_name))
-                    return mounts[mp_name] + top_path;
-            }
-            catch { }
-            return "\\fhwuaeifhweuajifwefgva";
+            string volroot;
+            if (!mounts.TryGetValue(mp_name, out volroot))
+                return null;
+
+            string ret = volroot + top_path;
+            if (System.IO.Directory.Exists(ret))
+                return ret;
+
+            if (System.IO.File.Exists(ret))
+                return ret;
+
+            if (ret.EndsWith(".flac"))
+                ret = ret.Substring(0, ret.Length - 5);
+
+            if (System.IO.File.Exists(ret))
+                return ret;
+
+            return null;
         }
 
         public NtStatus CreateFile(
@@ -158,87 +133,29 @@ namespace mixtapeFS
             if (access != FileAccess.ReadData && access != FileAccess.GenericRead)
                 return DokanResult.Success;
 
-            while (true)
-            {
-                lock (busyFiles)
-                {
-                    if (!busyFiles.Contains(filename))
-                    {
-                        busyFiles.Add(filename);
-                        break;
-                    }
-                }
-                System.Threading.Thread.Sleep(10);
-            }
+            var src = lookup(filename);
+            if (src == null)
+                return DokanResult.FileNotFound;
 
-            bool isdir = false;
-            var dst = "c:\\cmfsc" + filename; // HARDCODE
-            if (!System.IO.File.Exists(dst))
-            {
-                var src = lookup(filename);
-                isdir = System.IO.Directory.Exists(src);
-                
-                bool copy = true;
-                if (!System.IO.File.Exists(src))
-                {
-                    copy = false;
-                    src = src.Substring(0, src.Length - 5); // ".opus.flac" HARDCODE UNSAFE
-                }
-                if (!System.IO.File.Exists(src))
-                {
-                    lock (busyFiles)
-                        busyFiles.Remove(filename);  // HACK (remove along with ^)
-                    
-                    return DokanResult.FileNotFound;
-                }
-
-                // TODO move all this to a media manager thing
-                var cmd = Z.EscapeArguments(
-                    "-hide_banner",
-                    "-nostdin",
-                    "-i", src,
-                    "-metadata", "iTunNORM=",
-                    "-metadata", "iTunSMPB="
-                );
-
-                if (copy)
-                    cmd += " " + Z.EscapeArguments(
-                        "-c", "copy"
-                    );
-                else
-                    cmd += " " + Z.EscapeArguments(
-                        // TODO maybe want some -af volume clamping here
-                        "-sample_fmt", "s16",
-                        "-ar", "44100",
-                        "-f", "flac"
-                    );
-
-                cmd += " " + Z.EscapeArguments(dst);
-
-                var dst_dir = dst.Substring(0, dst.LastIndexOf('\\'));
-                if (!System.IO.Directory.Exists(dst_dir))
-                    System.IO.Directory.CreateDirectory(dst_dir);  // == mkdir -p
-
-                var p = new System.Diagnostics.Process();
-                p.StartInfo.FileName = "ffmpeg";
-                p.StartInfo.Arguments = cmd;
-                p.Start();
-                p.WaitForExit();
-            }
-
-            lock (busyFiles)
-                busyFiles.Remove(filename);  // actually fine
-
-            if (isdir)
+            if (System.IO.Directory.Exists(src))
             {
                 info.IsDirectory = true;
                 return DokanResult.Success;
             }
 
-            if (System.IO.File.Exists(dst))
+            if (!System.IO.File.Exists(src) && src.EndsWith(".flac"))
+            {
+                src = src.Substring(0, src.Length - 5);
+                if (!System.IO.File.Exists(src))
+                    return DokanResult.FileNotFound;
+            }
+
+            var tcPath = cache.Get(src);
+
+            if (tcPath != null && System.IO.File.Exists(tcPath))
                 try
                 {
-                    info.Context = new FileStream(dst, FileMode.Open, System.IO.FileAccess.Read);
+                    info.Context = new FileStream(tcPath, FileMode.Open, System.IO.FileAccess.Read);
                     return DokanResult.Success;
                 }
                 catch { }
@@ -294,6 +211,9 @@ namespace mixtapeFS
             }
 
             var top_path = lookup(filename);
+            if (top_path == null)
+                return DokanResult.FileNotFound;
+
             if (System.IO.File.Exists(top_path))
                 return DokanResult.Success;
 
@@ -329,30 +249,21 @@ namespace mixtapeFS
             IDokanFileInfo info)
         {
             log("GetFileInformation", filename);
-
             fileinfo = new FileInformation { FileName = filename };
+
             var src = lookup(filename);
-            
-            while (true)
-            {
-                lock (busyFiles)
-                    if (!busyFiles.Contains(filename))
-                        break;
+            if (src == null)
+                return DokanResult.FileNotFound;
 
-                System.Threading.Thread.Sleep(10);
-            }
+            var isDir = System.IO.Directory.Exists(src) || src == "";
+            var tcPath = isDir? null : cache.Get(src);
 
-            fileinfo.Attributes = (System.IO.Directory.Exists(src) || src == "") ? FileAttributes.Directory : FileAttributes.ReadOnly;
+            fileinfo.Attributes = isDir ? FileAttributes.Directory : FileAttributes.ReadOnly;
             fileinfo.LastAccessTime = DateTime.Now;
             fileinfo.LastWriteTime = null;
             fileinfo.CreationTime = null;
-            try
-            {
-                var dst = "c:\\cmfsc" + filename;
-                if (System.IO.File.Exists(dst))
-                    fileinfo.Length = new System.IO.FileInfo(dst).Length;
-            }
-            catch { }
+            if (tcPath != null && System.IO.File.Exists(tcPath))
+                fileinfo.Length = new System.IO.FileInfo(tcPath).Length;
 
             return DokanResult.Success;
         }
