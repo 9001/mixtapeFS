@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Security.Cryptography;
 using System.Text;
@@ -11,22 +12,30 @@ namespace mixtapeFS
     {
         public bool busy;
         public int refs;
+        public long active;
         public string origPath;
         public string tcPath;
+        public long sz;
 
         public Centry(string origPath)
         {
             this.origPath = origPath;
-            this.busy = true;
-            this.refs = 0;
-            this.tcPath = null;
+            busy = true;
+            refs = 0;
+            active = DateTime.UtcNow.Ticks / Z.SEC;
+            tcPath = null;
+            sz = 0;
         }
     }
 
     class Cache
     {
+        const long CACHE_MAX_SEC = 600; // HARDCODE
+        const long CACHE_MAX_MBYTE = 8192;
+
         string root;
         Logger logger;
+        long sz;
         Dictionary<string, Centry> known;
         HashSet<string> flacify, repack;
         
@@ -35,6 +44,7 @@ namespace mixtapeFS
             this.root = root;
             this.logger = logger;
             System.IO.Directory.CreateDirectory(root);
+            sz = 0;
 
             known = new Dictionary<string, Centry>();
             
@@ -52,20 +62,30 @@ namespace mixtapeFS
             thr.Start();
         }
 
-        void log(params string[] words)
+        void log(int lv, params string[] words)
         {
-            logger.log(words);
+            logger.log(lv, words);
         }
 
-        public void Close(string origPath)
+        public void Release(string origPath)
         {
+            if (origPath == null || origPath == "")
+                return;
+
+            //if (!System.IO.Directory.Exists(origPath)) // TODO awful
+            //    log(4, "cache releasing", origPath);
+            
             Centry ce;
             lock (known)
                 if (known.TryGetValue(origPath, out ce))
+                {
                     ce.refs--;
+                    ce.active = DateTime.UtcNow.Ticks / Z.SEC;
+                    log(4, "cache released", ce.refs.ToString(), origPath);
+                }
         }
 
-        public string Get(string origPath)
+        public string Get(string origPath, bool refcount = true, bool need_conv = true)
         {
             var ext = origPath.Substring(origPath.LastIndexOf('.') + 1).ToLower();
             var tcext = ext;
@@ -76,22 +96,29 @@ namespace mixtapeFS
                 if (!flacify.Contains(ext))
                     return origPath;
 
-                tcext += ".flac";
+                tcext += TheFS.TC_EXT;
             }
 
             Centry ce;
             var yaranaika = false;
             lock (known)
             {
-                if (!known.TryGetValue(origPath, out ce))
+                if (!known.TryGetValue(origPath, out ce) && need_conv)
                 {
                     ce = new Centry(origPath);
                     known.Add(origPath, ce);
                     yaranaika = true;
                 }
-                ce.refs++;
+                if (need_conv && refcount)
+                    ce.refs++;
             }
             //log("cache get", origPath);
+
+            if (ce == null)
+            {
+                log(3, "cache nullret", origPath);
+                return null;
+            }
             
             while (true)
             {
@@ -99,8 +126,8 @@ namespace mixtapeFS
                     if (!ce.busy || yaranaika)
                         break;
 
+                log(3, "cache waiting", origPath);
                 System.Threading.Thread.Sleep(100);
-                log("cache waiting", origPath);
             }
 
             //log("cache FOUND", origPath);
@@ -116,14 +143,22 @@ namespace mixtapeFS
             }
 
             // safe, only this thread can manip this ce in known rn
-            ce.tcPath = string.Format(@"{0}\{1:X}-{2}.{3}", root, DateTime.UtcNow.Ticks / 10000, hash, tcext);
+            ce.tcPath = string.Format(@"{0}\{1:X}-{2}.{3}", root, DateTime.UtcNow.Ticks / Z.MSEC, hash, tcext);
 
-            log("cache create", ce.tcPath);
+            log(4, "cache gen ", origPath);
             
             var cmd = Z.EscapeArguments(
                 "-hide_banner",
                 "-nostdin",
-                "-i", origPath,
+                "-i", origPath
+            );
+
+            if (ext == "flac" || ext == "ogg" || ext == "opus")
+                cmd += " " + Z.EscapeArguments(
+                    "-map_metadata", "0:s:0"  // sigh
+                );
+            
+            cmd += " " + Z.EscapeArguments(
                 "-metadata", "iTunNORM=",
                 "-metadata", "iTunSMPB="
             );
@@ -138,6 +173,8 @@ namespace mixtapeFS
                     "-sample_fmt", "s16",
                     "-ar", "44100",
                     "-f", "flac"
+                    //"-c:a", "libmp3lame",
+                    //"-b:a", "320k"
                 );
 
             cmd += " " + Z.EscapeArguments(ce.tcPath);
@@ -145,14 +182,20 @@ namespace mixtapeFS
             var p = new System.Diagnostics.Process();
             p.StartInfo.FileName = "ffmpeg";
             p.StartInfo.Arguments = cmd;
+            p.StartInfo.CreateNoWindow = true;
+            p.StartInfo.WindowStyle = System.Diagnostics.ProcessWindowStyle.Hidden;
             p.Start();
             p.WaitForExit();
+            
+            ce.sz = new FileInfo(ce.tcPath).Length;
 
             lock (known)
             {
                 ce.busy = false;
+                ce.active = DateTime.UtcNow.Ticks / Z.SEC;
+                this.sz += ce.sz;
             }
-            //log("cache DONE", origPath);
+            log(4, "cache DONE", this.sz.ToString(), origPath);
             return ce.tcPath;
         }
 
@@ -160,7 +203,46 @@ namespace mixtapeFS
         {
             while (true)
             {
-                Thread.Sleep(9001);
+                Thread.Sleep(1);
+                var drop = new List<string>();
+                var now = DateTime.UtcNow.Ticks / Z.SEC;
+                lock (known)
+                {
+                    foreach (var e in known)
+                        if (e.Value.refs == 0 && now - e.Value.active >= CACHE_MAX_SEC)
+                            drop.Add(e.Key);
+
+                    foreach (var k in drop)
+                    {
+                        var ce = known[k];
+                        log(3, "cache drop", (now - ce.active).ToString(), k);
+                        System.IO.File.Delete(ce.tcPath);
+                        this.sz -= ce.sz;
+                        known.Remove(k);
+                    }
+                }
+
+                drop.Clear();
+                if (sz / (1024 * 1024) >= CACHE_MAX_MBYTE)
+                {
+                    lock (known)
+                    {
+                        var lst = known.OrderBy(o => o.Value.active).ToList();
+                        foreach (var e in lst)
+                        {
+                            if (e.Value.refs == 0)
+                            {
+                                var ce = known[e.Key];
+                                log(3, "cache drop SIZE", (sz / (1024 * 1024)).ToString(), e.Key);
+                                System.IO.File.Delete(ce.tcPath);
+                                this.sz -= ce.sz;
+                                known.Remove(e.Key);
+                                if (sz / (1024 * 1024) < CACHE_MAX_MBYTE)
+                                    break;
+                            }
+                        }
+                    }
+                }
             }
         }
     }

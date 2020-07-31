@@ -11,6 +11,8 @@ namespace mixtapeFS
 {
     class TheFS : IDokanOperations
     {
+        public const string TC_EXT = ".flac"; //".mp3"; 
+
         private const FileAccess DataAccess = FileAccess.ReadData | FileAccess.WriteData | FileAccess.AppendData |
                                               FileAccess.Execute |
                                               FileAccess.GenericExecute | FileAccess.GenericWrite |
@@ -31,9 +33,9 @@ namespace mixtapeFS
             mounts = new Dictionary<string, string>();
         }
 
-        void log(params string[] words)
+        void log(int lv, params string[] words)
         {
-            logger.log(words);
+            logger.log(lv, words);
         }
 
         public void AddMount(string src, string name)
@@ -43,11 +45,14 @@ namespace mixtapeFS
 
         public void Cleanup(string filename, IDokanFileInfo info)
         {
-            log("Cleanup", filename);
+            log(5, "Cleanup", filename);
             try
             {
                 if (info.Context != null)
+                {
                     (info.Context as FileStream).Dispose();
+                    cache.Release(lookup(filename));
+                }
             }
             catch { }
             info.Context = null;
@@ -55,11 +60,14 @@ namespace mixtapeFS
 
         public void CloseFile(string filename, IDokanFileInfo info)
         {
-            log("CloseFile", filename);
+            log(5, "CloseFile", filename);
             try
             {
                 if (info.Context != null)
+                {
                     (info.Context as FileStream).Dispose();
+                    cache.Release(lookup(filename));
+                }
             }
             catch { }
             info.Context = null;
@@ -87,8 +95,8 @@ namespace mixtapeFS
             if (System.IO.File.Exists(ret))
                 return ret;
 
-            if (ret.EndsWith(".flac"))
-                ret = ret.Substring(0, ret.Length - 5);
+            if (ret.EndsWith(TC_EXT))
+                ret = ret.Substring(0, ret.Length - TC_EXT.Length);
 
             if (System.IO.File.Exists(ret))
                 return ret;
@@ -105,7 +113,7 @@ namespace mixtapeFS
             FileAttributes attributes,
             IDokanFileInfo info)
         {
-            log("CreateFile", filename);
+            log(5, "CreateFile", filename);
             if (filename.EndsWith(".ogg"))
                 Console.WriteLine("fds");
 
@@ -143,9 +151,9 @@ namespace mixtapeFS
                 return DokanResult.Success;
             }
 
-            if (!System.IO.File.Exists(src) && src.EndsWith(".flac"))
+            if (!System.IO.File.Exists(src) && src.EndsWith(TC_EXT))
             {
-                src = src.Substring(0, src.Length - 5);
+                src = src.Substring(0, src.Length - TC_EXT.Length);
                 if (!System.IO.File.Exists(src))
                     return DokanResult.FileNotFound;
             }
@@ -165,14 +173,14 @@ namespace mixtapeFS
 
         public NtStatus DeleteDirectory(string filename, IDokanFileInfo info)
         {
-            log("DeleteDirectory", filename);
+            log(9, "DeleteDirectory", filename);
 
             return DokanResult.Error;
         }
 
         public NtStatus DeleteFile(string filename, IDokanFileInfo info)
         {
-            log("DeleteFile", filename);
+            log(9, "DeleteFile", filename);
 
             return DokanResult.Error;
         }
@@ -181,7 +189,7 @@ namespace mixtapeFS
             string filename,
             IDokanFileInfo info)
         {
-            log("FlushFileBuffers", filename);
+            log(9, "FlushFileBuffers", filename);
 
             return DokanResult.Error;
         }
@@ -191,7 +199,7 @@ namespace mixtapeFS
             out IList<FileInformation> files,
             IDokanFileInfo info)
         {
-            log("FindFiles", filename);
+            log(7, "FindFiles", filename);
 
             files = new List<FileInformation>();
             if (filename == "\\")
@@ -227,7 +235,7 @@ namespace mixtapeFS
             {
                 var fname = fpath.Substring(top_path.Length + 1);
                 if (fname.EndsWith(".opus")) // HARDCODE
-                    fname += ".flac";
+                    fname += TC_EXT;
 
                 files.Add(new FileInformation { FileName = fname, Attributes = FileAttributes.ReadOnly });
             }
@@ -248,7 +256,7 @@ namespace mixtapeFS
             out FileInformation fileinfo,
             IDokanFileInfo info)
         {
-            log("GetFileInformation", filename);
+            log(7, "GetFileInformation", filename);
             fileinfo = new FileInformation { FileName = filename };
 
             var src = lookup(filename);
@@ -256,7 +264,7 @@ namespace mixtapeFS
                 return DokanResult.FileNotFound;
 
             var isDir = System.IO.Directory.Exists(src) || src == "";
-            var tcPath = isDir? null : cache.Get(src);
+            var tcPath = isDir ? null : cache.Get(src, false); //, false); //(traktor needs real size)
 
             fileinfo.Attributes = isDir ? FileAttributes.Directory : FileAttributes.ReadOnly;
             fileinfo.LastAccessTime = DateTime.Now;
@@ -274,7 +282,7 @@ namespace mixtapeFS
             long length,
             IDokanFileInfo info)
         {
-            log("LockFile", filename);
+            log(9, "LockFile", filename);
 
             return DokanResult.Success;
         }
@@ -285,7 +293,7 @@ namespace mixtapeFS
             bool replace,
             IDokanFileInfo info)
         {
-            log("MoveFile", filename);
+            log(9, "MoveFile", filename);
 
             return DokanResult.Error;
         }
@@ -297,7 +305,7 @@ namespace mixtapeFS
             long offset,
             IDokanFileInfo info)
         {
-            log("ReadFile", filename);
+            log(9, "ReadFile", filename);
 
             var close = false;
             if (info.Context == null)
@@ -327,14 +335,14 @@ namespace mixtapeFS
 
         public NtStatus SetEndOfFile(string filename, long length, IDokanFileInfo info)
         {
-            log("SetEndOfFile", filename);
+            log(9, "SetEndOfFile", filename);
 
             return DokanResult.Error;
         }
 
         public NtStatus SetAllocationSize(string filename, long length, IDokanFileInfo info)
         {
-            log("SetAllocationSize", filename);
+            log(9, "SetAllocationSize", filename);
 
             return DokanResult.Error;
         }
@@ -344,7 +352,7 @@ namespace mixtapeFS
             FileAttributes attr,
             IDokanFileInfo info)
         {
-            log("SetFileAttributes", filename);
+            log(9, "SetFileAttributes", filename);
 
             return DokanResult.Error;
         }
@@ -356,28 +364,28 @@ namespace mixtapeFS
             DateTime? mtime,
             IDokanFileInfo info)
         {
-            log("SetFileTime", filename);
+            log(9, "SetFileTime", filename);
 
             return DokanResult.Error;
         }
 
         public NtStatus UnlockFile(string filename, long offset, long length, IDokanFileInfo info)
         {
-            log("UnlockFile", filename);
+            log(9, "UnlockFile", filename);
 
             return DokanResult.Success;
         }
 
         public NtStatus Mounted(IDokanFileInfo info)
         {
-            log("Mounted");
+            log(9, "Mounted");
 
             return DokanResult.Success;
         }
 
         public NtStatus Unmounted(IDokanFileInfo info)
         {
-            log("Unmounted");
+            log(9, "Unmounted");
 
             return DokanResult.Success;
         }
@@ -388,7 +396,7 @@ namespace mixtapeFS
             out long totalFreeBytes,
             IDokanFileInfo info)
         {
-            log("GetDiskFreeSpace");
+            log(9, "GetDiskFreeSpace");
 
             freeBytesAvailable = 512 * 1024 * 1024;
             totalBytes = 1024 * 1024 * 1024;
@@ -403,7 +411,7 @@ namespace mixtapeFS
             long offset,
             IDokanFileInfo info)
         {
-            log("WriteFile", filename);
+            log(9, "WriteFile", filename);
 
             writtenBytes = 0;
             return DokanResult.Error;
@@ -412,19 +420,19 @@ namespace mixtapeFS
         public NtStatus GetVolumeInformation(out string volumeLabel, out FileSystemFeatures features,
             out string fileSystemName, out uint maximumComponentLength, IDokanFileInfo info)
         {
-            log("GetVolumeInformation");
+            log(9, "GetVolumeInformation");
 
             volumeLabel = "mixtapeFS";
             features = FileSystemFeatures.None;
             fileSystemName = string.Empty;
             maximumComponentLength = 256;
-            return DokanResult.Error;
+            return DokanResult.Success;
         }
 
         public NtStatus GetFileSecurity(string fileName, out FileSystemSecurity security, AccessControlSections sections,
             IDokanFileInfo info)
         {
-            log("GetFileSecurity", fileName);
+            log(9, "GetFileSecurity", fileName);
 
             security = null;
             return DokanResult.Error;
@@ -433,7 +441,7 @@ namespace mixtapeFS
         public NtStatus SetFileSecurity(string fileName, FileSystemSecurity security, AccessControlSections sections,
             IDokanFileInfo info)
         {
-            log("SetFileSecurity", fileName);
+            log(9, "SetFileSecurity", fileName);
 
             return DokanResult.Error;
         }
@@ -441,7 +449,7 @@ namespace mixtapeFS
         public NtStatus EnumerateNamedStreams(string fileName, IntPtr enumContext, out string streamName,
             out long streamSize, IDokanFileInfo info)
         {
-            log("EnumerateNamedStreams", fileName);
+            log(9, "EnumerateNamedStreams", fileName);
 
             streamName = string.Empty;
             streamSize = 0;
@@ -450,7 +458,7 @@ namespace mixtapeFS
 
         public NtStatus FindStreams(string fileName, out IList<FileInformation> streams, IDokanFileInfo info)
         {
-            log("FindStreams", fileName);
+            log(9, "FindStreams", fileName);
 
             streams = new FileInformation[0];
             return DokanResult.NotImplemented;
@@ -459,7 +467,25 @@ namespace mixtapeFS
         public NtStatus FindFilesWithPattern(string fileName, string searchPattern, out IList<FileInformation> files,
             IDokanFileInfo info)
         {
-            log("FindFilesWithPattern", fileName);
+            log(9, "FindFilesWithPattern", fileName, searchPattern);
+            
+            // traktor support (does not load tags otherwise)
+            string hit = lookup(fileName + "\\" + searchPattern);
+            if (hit != null && hit != "")
+            {
+                bool isdir = System.IO.Directory.Exists(hit); 
+                files = new FileInformation[1];
+                files[0] = new FileInformation()
+                {
+                    Attributes = isdir ? FileAttributes.Directory : FileAttributes.ReadOnly,
+                    LastAccessTime = DateTime.Now,
+                    LastWriteTime = null,
+                    CreationTime = null,
+                    FileName = fileName + "\\" + searchPattern,
+                    Length = isdir ? 0 : new FileInfo(hit).Length
+                };
+                return DokanResult.Success;
+            }
 
             files = new FileInformation[0];
             return DokanResult.NotImplemented;

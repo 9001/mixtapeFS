@@ -40,6 +40,8 @@ namespace mixtapeFS
             t.Start();
             t.Tick += t_Tick;
 
+            gLog.Font = new Font("Consolas", gLog.Font.Size);
+
             //this.DoubleBuffered = true;
             //typeof(Label).InvokeMember("DoubleBuffered", System.Reflection.BindingFlags.SetProperty | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.NonPublic, null, gLog, new object[] { true });
         }

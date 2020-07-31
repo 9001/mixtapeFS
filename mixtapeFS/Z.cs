@@ -8,6 +8,9 @@ namespace mixtapeFS
 {
     class Z
     {
+        public const long MSEC = 10000;
+        public const long SEC = 10000000;
+
         // http://csharptest.net/529/how-to-correctly-escape-command-line-arguments-in-c/index.html
         public static string EscapeArguments(params string[] args)
         {
@@ -25,9 +28,8 @@ namespace mixtapeFS
                 {
                     arguments.Append('"');
                     arguments.Append(escapeQuote.Replace(args[carg], m =>
-                    m.Groups[1].Value + m.Groups[1].Value +
-                    (m.Groups[2].Value == "\"" ? "\\\"" : "")
-                    ));
+                        m.Groups[1].Value + m.Groups[1].Value +
+                        (m.Groups[2].Value == "\"" ? "\\\"" : "")));
                     arguments.Append('"');
                 }
                 if (carg + 1 < args.Length)
@@ -46,10 +48,18 @@ namespace mixtapeFS
             msgs = new List<string>();
         }
 
-        public void log(string[] words)
+        public void log(int lv, string[] words)
         {
             //if (!words[0].StartsWith("cache"))
             //    return;
+
+            if (lv > 4)
+                return;
+
+            // 3 cache block,drop
+            // 4 cache rls,gen,done
+            // 5 open/close
+            // 7 findfiles, getinfo
 
             lock (msgs)
             {
