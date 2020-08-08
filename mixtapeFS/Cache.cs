@@ -187,7 +187,21 @@ namespace mixtapeFS
             p.Start();
             p.WaitForExit();
             
-            ce.sz = new FileInfo(ce.tcPath).Length;
+            try
+            {
+                ce.sz = new FileInfo(ce.tcPath).Length;
+            }
+            catch
+            {
+                lock (known)
+                {
+                    ce.tcPath = null;
+                    ce.busy = false;
+                    ce.active = 0;
+                    known.Remove(origPath);
+                    return null;
+                }
+            }
 
             lock (known)
             {

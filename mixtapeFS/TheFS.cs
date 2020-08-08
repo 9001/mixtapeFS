@@ -225,20 +225,24 @@ namespace mixtapeFS
             if (System.IO.File.Exists(top_path))
                 return DokanResult.Success;
 
-            foreach (var dpath in System.IO.Directory.EnumerateDirectories(top_path))
+            try
             {
-                var dname = dpath.Substring(top_path.Length + 1);
-                files.Add(new FileInformation { FileName = dname, Attributes = FileAttributes.Directory });
-            }
+                foreach (var dpath in System.IO.Directory.EnumerateDirectories(top_path))
+                {
+                    var dname = dpath.Substring(top_path.Length + 1);
+                    files.Add(new FileInformation { FileName = dname, Attributes = FileAttributes.Directory });
+                }
 
-            foreach (var fpath in System.IO.Directory.EnumerateFiles(top_path))
-            {
-                var fname = fpath.Substring(top_path.Length + 1);
-                if (fname.EndsWith(".opus")) // HARDCODE
-                    fname += TC_EXT;
+                foreach (var fpath in System.IO.Directory.EnumerateFiles(top_path))
+                {
+                    var fname = fpath.Substring(top_path.Length + 1);
+                    if (fname.EndsWith(".opus")) // HARDCODE
+                        fname += TC_EXT;
 
-                files.Add(new FileInformation { FileName = fname, Attributes = FileAttributes.ReadOnly });
+                    files.Add(new FileInformation { FileName = fname, Attributes = FileAttributes.ReadOnly });
+                }
             }
+            catch (UnauthorizedAccessException ex) {}
 
             for (var a = 0; a < files.Count; a++)
             {
