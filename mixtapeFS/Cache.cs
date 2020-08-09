@@ -32,6 +32,8 @@ namespace mixtapeFS
     {
         const long CACHE_MAX_SEC = 600; // HARDCODE
         const long CACHE_MAX_MBYTE = 8192;
+        const bool USING_TRAKTOR = false;
+        const bool USING_REKORDBOX = true;
 
         string root;
         Logger logger;
@@ -49,13 +51,25 @@ namespace mixtapeFS
             known = new Dictionary<string, Centry>();
             
             flacify = new HashSet<string>();
-            flacify.Add("opus"); // HARDCODE
-            
             repack = new HashSet<string>();
-            repack.Add("mp3"); // HARDCODE
-            repack.Add("m4a");
-            repack.Add("aac");
-            repack.Add("ogg");
+
+            if (USING_TRAKTOR && USING_REKORDBOX)
+                throw new Exception("choose one");
+
+            if (USING_TRAKTOR)
+            {
+                flacify.Add("opus"); // HARDCODE
+                repack.Add("mp3"); // HARDCODE
+                repack.Add("m4a");
+                repack.Add("aac");
+                repack.Add("ogg");
+            }
+
+            if (USING_REKORDBOX)
+            {
+                flacify.Add("opus"); // HARDCODE
+                flacify.Add("ogg");
+            }
 
             var thr = new Thread(new ThreadStart(janny));
             thr.IsBackground = true;

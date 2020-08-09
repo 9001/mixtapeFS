@@ -26,7 +26,8 @@ namespace mixtapeFS
             logger = new Logger();
             msgs = new List<string>();
             cmfs = new TheFS(logger);
-            cmfs.AddMount(@"C:\Users\ed\Music", "music");
+            cmfs.AddMount(@"C:\Users\ed\Music", "cmusic"); // HARDCODE
+            cmfs.AddMount(@"Q:\music", "nas");
 
             var thr = new System.Threading.Thread(new System.Threading.ThreadStart(() =>
             {
