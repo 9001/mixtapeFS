@@ -6,12 +6,12 @@ using System.Runtime.InteropServices;
 // set of attributes. Change these attribute values to modify the information
 // associated with an assembly.
 [assembly: AssemblyTitle("mixtapeFS")]
-[assembly: AssemblyDescription("")]
+[assembly: AssemblyDescription("on-demand media transcoding filesystem")]
 [assembly: AssemblyConfiguration("")]
-[assembly: AssemblyCompany("")]
+[assembly: AssemblyCompany("ed@rizon")]
 [assembly: AssemblyProduct("mixtapeFS")]
-[assembly: AssemblyCopyright("Copyright ©  2020")]
-[assembly: AssemblyTrademark("")]
+[assembly: AssemblyCopyright("Copyright © ed 2020")]
+[assembly: AssemblyTrademark("yes")]
 [assembly: AssemblyCulture("")]
 
 // Setting ComVisible to false makes the types in this assembly not visible 

@@ -11,6 +11,9 @@ namespace mixtapeFS
 {
     class TheFS : IDokanOperations
     {
+        const bool USING_TRAKTOR = false;
+        const bool USING_REKORDBOX = true;
+
         public const string TC_EXT = ".flac"; //".mp3"; 
 
         private const FileAccess DataAccess = FileAccess.ReadData | FileAccess.WriteData | FileAccess.AppendData |
@@ -25,11 +28,35 @@ namespace mixtapeFS
         Logger logger;
         Cache cache;
         Dictionary<string, string> mounts;
+        HashSet<string> flacify, repack;
 
-        public TheFS(Logger logger)
+        public TheFS(Logger logger, string cachedir, int cacheSec, int cacheMB)
         {
             this.logger = logger;
-            cache = new Cache(logger, @"c:\cmfsc\" + DateTime.UtcNow.Ticks);
+            flacify = new HashSet<string>();
+            repack = new HashSet<string>();
+
+            if (USING_TRAKTOR && USING_REKORDBOX)
+                throw new Exception("choose one");
+
+            if (USING_TRAKTOR)
+            {
+                // TODO traktor is/was too broken to be worth even trying,
+                // make this a gui option if that improves
+                flacify.Add("opus"); // HARDCODE
+                repack.Add("mp3"); // HARDCODE
+                repack.Add("m4a");
+                repack.Add("aac");
+                repack.Add("ogg");
+            }
+
+            if (USING_REKORDBOX)
+            {
+                flacify.Add("opus"); // HARDCODE
+                flacify.Add("ogg");
+            }
+
+            cache = new Cache(logger, cachedir + DateTime.UtcNow.Ticks, flacify, repack, cacheSec, cacheMB);
             mounts = new Dictionary<string, string>();
         }
 
@@ -114,8 +141,6 @@ namespace mixtapeFS
             IDokanFileInfo info)
         {
             log(5, "CreateFile", filename);
-            if (filename.EndsWith(".ogg"))
-                Console.WriteLine("fds");
 
             if (info.IsDirectory)
                 return DokanResult.Success;
@@ -236,8 +261,9 @@ namespace mixtapeFS
                 foreach (var fpath in System.IO.Directory.EnumerateFiles(top_path))
                 {
                     var fname = fpath.Substring(top_path.Length + 1);
-                    if (fname.EndsWith(".opus")) // HARDCODE
-                        fname += TC_EXT;
+                    foreach (var ext in flacify)
+                        if (fname.EndsWith("." + ext))
+                            fname += TC_EXT;
 
                     files.Add(new FileInformation { FileName = fname, Attributes = FileAttributes.ReadOnly });
                 }

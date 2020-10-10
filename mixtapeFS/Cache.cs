@@ -30,47 +30,27 @@ namespace mixtapeFS
 
     class Cache
     {
-        const long CACHE_MAX_SEC = 600; // HARDCODE
-        const long CACHE_MAX_MBYTE = 8192;
-        const bool USING_TRAKTOR = false;
-        const bool USING_REKORDBOX = true;
-
         string root;
         Logger logger;
         long sz;
+        int cache_max_sec;
+        int cache_max_mbyte;
         Dictionary<string, Centry> known;
         HashSet<string> flacify, repack;
-        
-        public Cache(Logger logger, string root)
+
+        public Cache(Logger logger, string root, HashSet<string> flacify, HashSet<string> repack, int cacheSec, int cacheMB)
         {
             this.root = root;
             this.logger = logger;
+            this.flacify = flacify;
+            this.repack = repack;
+            cache_max_sec = cacheSec;
+            cache_max_mbyte = cacheMB;
             System.IO.Directory.CreateDirectory(root);
             sz = 0;
 
             known = new Dictionary<string, Centry>();
             
-            flacify = new HashSet<string>();
-            repack = new HashSet<string>();
-
-            if (USING_TRAKTOR && USING_REKORDBOX)
-                throw new Exception("choose one");
-
-            if (USING_TRAKTOR)
-            {
-                flacify.Add("opus"); // HARDCODE
-                repack.Add("mp3"); // HARDCODE
-                repack.Add("m4a");
-                repack.Add("aac");
-                repack.Add("ogg");
-            }
-
-            if (USING_REKORDBOX)
-            {
-                flacify.Add("opus"); // HARDCODE
-                flacify.Add("ogg");
-            }
-
             var thr = new Thread(new ThreadStart(janny));
             thr.IsBackground = true;
             thr.Start();
@@ -237,7 +217,7 @@ namespace mixtapeFS
                 lock (known)
                 {
                     foreach (var e in known)
-                        if (e.Value.refs == 0 && now - e.Value.active >= CACHE_MAX_SEC)
+                        if (e.Value.refs == 0 && now - e.Value.active >= cache_max_sec)
                             drop.Add(e.Key);
 
                     foreach (var k in drop)
@@ -251,7 +231,7 @@ namespace mixtapeFS
                 }
 
                 drop.Clear();
-                if (sz / (1024 * 1024) >= CACHE_MAX_MBYTE)
+                if (sz / (1024 * 1024) >= cache_max_mbyte)
                 {
                     lock (known)
                     {
@@ -265,7 +245,7 @@ namespace mixtapeFS
                                 System.IO.File.Delete(ce.tcPath);
                                 this.sz -= ce.sz;
                                 known.Remove(e.Key);
-                                if (sz / (1024 * 1024) < CACHE_MAX_MBYTE)
+                                if (sz / (1024 * 1024) < cache_max_mbyte)
                                     break;
                             }
                         }
