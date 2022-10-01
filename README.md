@@ -25,12 +25,16 @@ filesystem with media transcoding on-demand
 * keep adding more folders to rehost if you'd like
 
 ## note
+* if it crashes, check windows event viewer
+* it can read nfs if you give it the unc path as src, `\\192.168.123.1\mnt\music`
 * avoid a memleak by running the exe separately (not using visualstudio) (nice)
 
 ## todo
+* upgrade to dokany 2.x
+* extract audio from video files
 * figure out what's causing traktor to crash on certain flac files and patch those too
   * probably won't bother since traktor is just too janky
 
 ## dependencies
-* https://github.com/dokan-dev/dokany/releases/latest
-* https://ffmpeg.zeranoe.com/builds/
+* https://github.com/dokan-dev/dokany/releases/tag/v1.5.1.1000
+* https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-gpl.zip
